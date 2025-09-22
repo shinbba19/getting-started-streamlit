@@ -7,96 +7,18 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import altair as alt
 
 # --------------------------------------------------
-# Initialize Session State
-# --------------------------------------------------
-if "deals" not in st.session_state:
-    st.session_state.deals = []
-
-# --------------------------------------------------
 # Sidebar Menu
 # --------------------------------------------------
-menu = [
-    "Home",
-    "Owner Dashboard",
-    "Investor Dashboard",
-    "Deal Summary",
-    "Data Dashboard",
-    "Price Prediction"
-]
+menu = ["Data Dashboard", "Price Prediction"]
 choice = st.sidebar.selectbox("Menu", menu)
 
 # --------------------------------------------------
-# 1) Home
+# 1) Data Dashboard
 # --------------------------------------------------
-if choice == "Home":
-    st.title("🏠 P2P ขายฝาก Platform (Prototype)")
-    st.write("""
-    Prototype นี้จำลองระบบ P2P ขายฝากแบบง่าย **(ไม่มี blockchain, ไม่ต้อง login)**  
-
-    🔹 Features:
-    - เจ้าของทรัพย์: สามารถโพสต์ข้อมูลขายฝาก  
-    - นักลงทุน: เลือกลงทุนในดีลที่สนใจ  
-    - Dashboard: สำรวจข้อมูลราคาตลาดจริง  
-    - Model: ทำนายราคาทรัพย์ด้วย Random Forest  
-    """)
-
-# --------------------------------------------------
-# 2) Owner Dashboard
-# --------------------------------------------------
-elif choice == "Owner Dashboard":
-    st.header("📌 เจ้าของโพสต์ดีลขายฝาก")
-    with st.form("owner_form"):
-        property_name = st.text_input("ชื่อทรัพย์สิน (เช่น คอนโดสุขุมวิท 40)")
-        location = st.text_input("ทำเล/ที่ตั้ง")
-        price = st.number_input("วงเงินขายฝาก (บาท)", min_value=100000, step=50000)
-        duration = st.selectbox("ระยะเวลาไถ่ถอน", ["6 เดือน", "1 ปี", "2 ปี"])
-        submitted = st.form_submit_button("โพสต์ดีล")
-
-        if submitted:
-            deal = {
-                "property": property_name,
-                "location": location,
-                "price": price,
-                "duration": duration,
-                "status": "รอจับคู่"
-            }
-            st.session_state.deals.append(deal)
-            st.success("✅ โพสต์ดีลสำเร็จ!")
-
-# --------------------------------------------------
-# 3) Investor Dashboard
-# --------------------------------------------------
-elif choice == "Investor Dashboard":
-    st.header("💰 นักลงทุนเลือกดีล")
-    if len(st.session_state.deals) == 0:
-        st.info("ยังไม่มีดีลที่โพสต์")
-    else:
-        for i, deal in enumerate(st.session_state.deals):
-            with st.expander(f"ดีล {i+1}: {deal['property']}"):
-                st.write(f"📍 {deal['location']}")
-                st.write(f"💵 {deal['price']:,} บาท")
-                st.write(f"⏳ {deal['duration']}")
-                if st.button(f"ลงทุนในดีล {i+1}", key=f"invest_{i}"):
-                    st.session_state.deals[i]["status"] = "มีนักลงทุนแล้ว ✅"
-                    st.success(f"คุณเลือกลงทุนใน {deal['property']}")
-
-# --------------------------------------------------
-# 4) Deal Summary
-# --------------------------------------------------
-elif choice == "Deal Summary":
-    st.header("📊 สรุปดีลทั้งหมด")
-    if len(st.session_state.deals) > 0:
-        df = pd.DataFrame(st.session_state.deals)
-        st.dataframe(df)
-    else:
-        st.warning("ยังไม่มีดีลในระบบ")
-
-# --------------------------------------------------
-# 5) Data Dashboard
-# --------------------------------------------------
-elif choice == "Data Dashboard":
+if choice == "Data Dashboard":
     st.header("📊 Data Dashboard (สำรวจข้อมูลรวม)")
 
+    # Load dataset
     df = pd.read_csv("Price per sqm_cleaned_data_selection2.csv")
 
     # Sidebar Filters
@@ -117,6 +39,21 @@ elif choice == "Data Dashboard":
         (df["price_sqm"].between(price_range[0], price_range[1]))
     ]
 
+    # KPI Summary
+    st.subheader("📌 สรุปข้อมูล (KPI Overview)")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("ราคาเฉลี่ย (฿/ตร.ม.)", f"{filtered_df['price_sqm'].mean():,.0f}")
+    with col2:
+        st.metric("ราคาสูงสุด (฿/ตร.ม.)", f"{filtered_df['price_sqm'].max():,.0f}")
+    with col3:
+        st.metric("ราคาต่ำสุด (฿/ตร.ม.)", f"{filtered_df['price_sqm'].min():,.0f}")
+    with col4:
+        st.metric("อายุอาคารเฉลี่ย (ปี)", f"{filtered_df['bld_age'].mean():.1f}")
+
+    st.write("---")
+
+    # Filtered Data
     st.subheader("📋 ข้อมูลที่ถูกกรอง")
     st.write(f"จำนวนแถวที่เลือก: {len(filtered_df)}")
     st.dataframe(filtered_df.head(20))
@@ -139,23 +76,44 @@ elif choice == "Data Dashboard":
     )
     st.altair_chart(chart2, use_container_width=True)
 
-    # Chart 3: Facilities Impact (Pool)
-    st.subheader("🏊 สิ่งอำนวยความสะดวกกับราคาเฉลี่ย")
-    facility_chart = filtered_df.groupby("Pool")["price_sqm"].mean().reset_index()
-    chart3 = alt.Chart(facility_chart).mark_bar().encode(
-        x="Pool:N",
-        y="price_sqm:Q"
+    # Chart 3: Distance to BTS vs Price
+    st.subheader("🚉 ระยะทางจาก BTS กับราคาต่อตร.ม.")
+    chart3 = alt.Chart(filtered_df).mark_circle(size=60, opacity=0.6).encode(
+        x=alt.X("Aver_trans", title="ระยะทางจาก BTS (กม.)"),
+        y=alt.Y("price_sqm", title="ราคาต่อตร.ม."),
+        color="district_type:N",
+        tooltip=["Aver_trans", "price_sqm", "district_type", "bld_age"]
     )
     st.altair_chart(chart3, use_container_width=True)
 
+    # Chart 4: District vs Average Price
+    st.subheader("🏙️ ราคาเฉลี่ยตาม District")
+    district_chart = filtered_df.groupby("district_type")["price_sqm"].mean().reset_index()
+    chart4 = alt.Chart(district_chart).mark_bar().encode(
+        x="district_type:N",
+        y="price_sqm:Q"
+    )
+    st.altair_chart(chart4, use_container_width=True)
+
+    # Chart 5: Facilities Impact (Pool)
+    st.subheader("🏊 สิ่งอำนวยความสะดวกกับราคาเฉลี่ย (Pool)")
+    facility_chart = filtered_df.groupby("Pool")["price_sqm"].mean().reset_index()
+    chart5 = alt.Chart(facility_chart).mark_bar().encode(
+        x="Pool:N",
+        y="price_sqm:Q"
+    )
+    st.altair_chart(chart5, use_container_width=True)
+
 # --------------------------------------------------
-# 6) Price Prediction
+# 2) Price Prediction
 # --------------------------------------------------
 elif choice == "Price Prediction":
     st.header("📈 ทำนายราคาทรัพย์ด้วย Random Forest (จาก Dataset จริง)")
 
+    # Load dataset
     df = pd.read_csv("Price per sqm_cleaned_data_selection2.csv")
 
+    # Features
     features = [
         "bld_age", "nbr_floors", "Aver_trans", "district_type",
         "Pool", "Gym", "Parking", "Elevator", "Security",
@@ -183,30 +141,25 @@ elif choice == "Price Prediction":
     st.write(f"**MAE:** {mae:,.0f} บาท/ตร.ม.")
     st.write(f"**RMSE:** {rmse:,.0f} บาท/ตร.ม.")
 
-    # User Input
+    # ---------------- User Input ----------------
     st.subheader("กรอกข้อมูลเพื่อทำนาย")
     size = st.number_input("ขนาดห้อง (ตร.ม.)", 20, 200, 35)
     age = st.number_input("อายุอาคาร (ปี)", 0, 40, 10)
     floor = st.number_input("ชั้นที่อยู่", 1, 60, 5)
     distance = st.number_input("ระยะทางจาก BTS (กม.)", 0.0, 15.0, 1.0, step=0.1)
-
-    # Preset Options
     district = st.selectbox("โซนทำเล (district_type)", sorted(df["district_type"].unique()))
-    pool = st.checkbox("มีสระว่ายน้ำ", value=True)
-    gym = st.checkbox("มียิม", value=True)
-    parking = st.checkbox("มีที่จอดรถ", value=True)
-    elevator = st.checkbox("มีลิฟต์", value=True)
-    security = st.checkbox("มีระบบรักษาความปลอดภัย", value=True)
 
-    avg_food = st.slider("คะแนนร้านอาหารรอบๆ (0-1)", 0.0, 1.0, float(df["Aver_food"].mean()))
-    avg_school = st.slider("คะแนนโรงเรียนรอบๆ (0-1)", 0.0, 1.0, float(df["Aver_school"].mean()))
-    avg_shop = st.slider("คะแนนร้านค้า/ห้างรอบๆ (0-1)", 0.0, 1.0, float(df["Aver_shop"].mean()))
-    hospital = st.slider("ระยะห่างโรงพยาบาล (กม.)", 0.0, 5.0, float(df["hospital"].mean()))
+    # Preset options (ค่า default)
+    pool, gym, parking, elevator, security = 1, 1, 1, 1, 1
+    avg_food = float(df["Aver_food"].mean())
+    avg_school = float(df["Aver_school"].mean())
+    avg_shop = float(df["Aver_shop"].mean())
+    hospital = float(df["hospital"].mean())
 
     if st.button("ทำนายราคา"):
         X_new = np.array([[
             age, floor, distance, district,
-            int(pool), int(gym), int(parking), int(elevator), int(security),
+            pool, gym, parking, elevator, security,
             avg_food, avg_school, avg_shop, hospital
         ]])
         pred_price_sqm = model.predict(X_new)[0]
